@@ -1,0 +1,13 @@
+PLATEWISE — START HERE
+
+1. Extract the ZIP archive.
+2. Open the extracted project folder in VS Code.
+3. Open Terminal > New Terminal.
+4. Make sure the terminal is in the same folder as package.json.
+5. Run: npm install
+6. Run: npm run dev
+7. Open the localhost URL shown in the terminal (usually http://localhost:5173/).
+
+The first screen is the Platewise landing page. Click Get started, wait for the progress to reach 100%, and then choose Login or Create a canteen account.
+
+This is a frontend preview. No sample data is preloaded. Login/signup, database storage and ML prediction are not connected yet. Data entered is held only in browser memory during the current session.
