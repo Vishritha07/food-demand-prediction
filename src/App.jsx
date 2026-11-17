@@ -421,29 +421,33 @@ function DataPage({ fileRef, parseFile, uploadName, uploadRows, uploadError, upl
 function PredictPage() {
   const [modelStatus, setModelStatus] = useState('loading');
   const [modelError, setModelError] = useState('');
-  const [columns, setColumns] = useState([]);
-  const [featureColumns, setFeatureColumns] = useState([]);
-  const [targetColumn, setTargetColumn] = useState('');
-  const [form, setForm] = useState({});
+  const [foodItems, setFoodItems] = useState([]);
+  const [form, setForm] = useState({
+    target_date: today,
+    day_of_week: new Date(`${today}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long' }),
+    attendance: '',
+    event: 'Regular',
+    food_item: '',
+  });
   const [predicting, setPredicting] = useState(false);
   const [prediction, setPrediction] = useState(null);
   const [predictionError, setPredictionError] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('http://localhost:8000/models/test_canteen_1', { signal: controller.signal })
+    fetch('http://localhost:8000/dataset/test_canteen_1', { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) {
           throw new Error(result.detail || 'Could not check model status.');
         }
-        if (!result.ready) {
+        if (!result.has_model) {
           setModelStatus('missing');
           return;
         }
-        setColumns(result.columns || []);
-        setFeatureColumns(result.feature_columns || []);
-        setTargetColumn(result.target_column || '');
+        const items = Array.isArray(result.model?.food_items) ? result.model.food_items : [];
+        setFoodItems(items);
+        setForm((previous) => ({ ...previous, food_item: items[0] || '' }));
         setModelStatus('ready');
       })
       .catch((error) => {
@@ -466,14 +470,25 @@ function PredictPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          features: featureColumns.map((column) => Number(form[column])),
+          target_date: form.target_date,
+          day_of_week: form.day_of_week,
+          attendance: Number(form.attendance),
+          event: form.event,
+          food_item: form.food_item,
         }),
       });
       const result = await response.json();
       if (!response.ok) {
         throw new Error(result.detail || 'Could not generate a prediction.');
       }
-      setPrediction(result.predicted_quantity);
+      const foodToPrepare = Number(result.food_to_prepare);
+      if (typeof result.food_to_prepare !== 'number' || !Number.isFinite(foodToPrepare)) {
+        throw new Error('Prediction response did not include a valid food-to-prepare quantity.');
+      }
+      setPrediction({
+        food_to_prepare: Math.round(foodToPrepare),
+        food_item: result.food_item || form.food_item,
+      });
     } catch (error) {
       setPredictionError(error.message || 'Could not generate a prediction.');
     } finally {
@@ -483,31 +498,41 @@ function PredictPage() {
 
   const modelStatusLabel = {
     loading: 'Checking model...',
-    ready: 'Model Ready',
+    ready: 'Ready',
     missing: 'Model Not Found',
     error: 'Model Status Unavailable',
   }[modelStatus];
 
+  const updateForm = (field) => (event) => {
+    setForm((previous) => ({ ...previous, [field]: event.target.value }));
+  };
+
   return <div className="predict-layout">
     <div className="panel predict-form-panel">
-      <div className="panel-heading"><div><h3>Meal information</h3><p>Inputs are based on the saved model's feature columns.</p></div><span className={`step-count model-state-${modelStatus}`}>{modelStatusLabel}</span></div>
+      <div className="panel-heading"><div><h3>Meal information</h3><p>Enter the service details to forecast demand and wastage.</p></div><span className={`step-count model-state-${modelStatus}`}>{modelStatusLabel}</span></div>
       {modelStatus === 'loading' && <div className="model-feedback" role="status"><Loader2 className="training-spinner" size={16} /> Checking saved model...</div>}
       {modelStatus === 'missing' && <div className="model-feedback model-feedback-warning" role="status"><AlertCircle size={16} /> No model is saved for test_canteen_1. Train a model before making predictions.</div>}
       {modelStatus === 'error' && <div className="model-feedback model-feedback-error" role="alert"><AlertCircle size={16} />{modelError}</div>}
       {modelStatus === 'ready' && <>
-        <div className="saved-columns" aria-label="Saved model columns"><strong>Saved columns</strong><div>{columns.map((column) => <span className="column-chip" key={column}>{column}</span>)}</div>{targetColumn && <small>Prediction target: {targetColumn}</small>}</div>
-        {featureColumns.length > 0 ? <form className="form-grid" onSubmit={submitPrediction}>
-          {featureColumns.map((column) => <label className="field" key={column}><span>{column}</span><input type="number" step="any" required value={form[column] ?? ''} onChange={(event) => setForm((previous) => ({ ...previous, [column]: event.target.value }))} placeholder={`Enter ${column}`} /></label>)}
-          <div className="form-note"><AlertCircle size={16} /><span>Enter a numeric value for each saved feature column.</span></div>
-          <button className="btn btn-primary predict-submit" type="submit" disabled={predicting} aria-busy={predicting}>{predicting ? <><Loader2 className="training-spinner" size={15} /> Generating...</> : <><Sparkles size={16} /> Generate prediction <ArrowRight size={15} /></>}</button>
-        </form> : <div className="model-feedback model-feedback-error" role="alert"><AlertCircle size={16} /> This saved model does not include feature column names, so its prediction form cannot be created.</div>}
+        {foodItems.length > 0 ? <form className="form-grid" onSubmit={submitPrediction}>
+          <label className="field"><span>Target date</span><input type="date" required value={form.target_date} onChange={updateForm('target_date')} /></label>
+          <label className="field"><span>Day of week</span><select required value={form.day_of_week} onChange={updateForm('day_of_week')}>{['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => <option key={day}>{day}</option>)}</select></label>
+          <label className="field"><span>Attendance</span><input type="number" min="0" step="1" required value={form.attendance} onChange={updateForm('attendance')} placeholder="Enter attendance" /></label>
+          <label className="field"><span>Event</span><select required value={form.event} onChange={updateForm('event')}><option>Regular</option><option>Exam</option><option>College Fest</option></select></label>
+          <label className="field"><span>Food item</span><select required value={form.food_item} onChange={updateForm('food_item')}>{foodItems.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+          <button className="btn btn-primary predict-submit" type="submit" disabled={predicting} aria-busy={predicting}>{predicting ? <><Loader2 className="training-spinner" size={15} /> Predicting...</> : <><Sparkles size={16} /> Predict <ArrowRight size={15} /></>}</button>
+        </form> : <div className="model-feedback model-feedback-warning" role="status"><AlertCircle size={16} /> The saved model does not have any food items available for prediction.</div>}
       </>}
     </div>
     <div className="prediction-side">
-      <div className="panel prediction-result"><div className="result-top"><span className="result-icon"><BrainCircuit size={19} /></span><span className="result-tag">LINEAR REGRESSION MODEL</span></div>
-        {prediction !== null ? <><div className="result-kicker">PREDICTED QUANTITY</div><div className="result-number">{fmt(prediction)}</div>{targetColumn && <div className="result-food">Target: {targetColumn}</div>}</> : <div className="result-empty"><div className="empty-brain"><BrainCircuit size={29} /></div><strong>{predictionError ? 'Prediction failed' : 'Prediction will appear here'}</strong><p>{predictionError || 'Submit model inputs to see a demand estimate.'}</p></div>}
+      <div className="panel prediction-result"><div className="result-top"><span className="result-icon"><BrainCircuit size={19} /></span></div>
+        {prediction !== null ? <div className="prediction-single-result">
+          <div className="result-kicker">Food Need to be Prepared</div>
+          <div className="result-number">{fmt(prediction.food_to_prepare)} <small>plates</small></div>
+          <div className="result-food">for {prediction.food_item}</div>
+        </div> : <div className="result-empty"><div className="empty-brain"><BrainCircuit size={29} /></div><strong>{predictionError ? 'Prediction failed' : 'Prediction will appear here'}</strong><p>{predictionError || 'Submit meal information to see the preparation estimate.'}</p></div>}
       </div>
-      <div className={`model-note ${modelStatus === 'ready' ? 'model-note-ready' : ''}`}><div className="model-note-icon">{modelStatus === 'ready' ? <CheckCircle2 size={16} /> : <Clock3 size={16} />}</div><div><strong>{modelStatusLabel}</strong><p>{modelStatus === 'ready' ? 'The saved model and its input columns are available for prediction.' : 'The prediction form unlocks when a saved model is found.'}</p></div></div>
+      <div className={`model-note ${modelStatus === 'ready' ? 'model-note-ready' : ''}`}><div className="model-note-icon">{modelStatus === 'ready' ? <CheckCircle2 size={16} /> : <Clock3 size={16} />}</div><div><strong>{modelStatusLabel}</strong><p>{modelStatus === 'ready' ? 'The saved model and its food items are available for prediction.' : 'The prediction form unlocks when a saved model is found.'}</p></div></div>
     </div>
   </div>;
 }

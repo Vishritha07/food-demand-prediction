@@ -15,7 +15,7 @@ A React + Vite frontend prototype for a multi-canteen food demand and wastage pr
 - Overview
 - Food items
 - Historical data upload and preview (CSV / XLSX / XLS)
-- Predict demand (checks for a saved model and uses its feature columns for predictions)
+- Predict demand (checks for a saved model, collects service details, and displays demand and wastage forecasts)
 - Actual records
 - Reports and analytics
 - Settings
@@ -43,11 +43,11 @@ python -m uvicorn main:app --reload
 ```
 
 The API provides `POST /train/{canteen_id}` for CSV model training,
-`GET /models/{canteen_id}` for model readiness and saved columns, and
-`POST /predict/{canteen_id}` for predictions. Training uses the final CSV
-column as the target and stores the trained model and its column metadata.
-The React prediction page checks `test_canteen_1` when opened and unlocks its
-prediction form when a saved model is available.
+`GET /dataset/{canteen_id}` for model readiness and saved food items, and
+`POST /predict/{canteen_id}` for predictions. The React prediction page checks
+`test_canteen_1` when opened and, when a model is available, uses its saved food
+items in the form. Predictions send the target date, day of week, attendance,
+event, and food item, and display predicted demand and wastage in plates.
 
 ## Important prototype notes
 
